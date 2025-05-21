@@ -1,99 +1,128 @@
-<!DOCTYPE html>
-<html lang="ja">
+<!DOCTYPE html><html>
 <head>
   <meta charset="UTF-8">
-  <title>2人用神経衰弱</title>
+  <title>2人用神経衰弱（Firebase同期）</title>
   <style>
     body { font-family: sans-serif; text-align: center; }
-    #board { display: grid; grid-template-columns: repeat(6, 80px); gap: 10px; justify-content: center; margin-top: 20px; }
-    .card {
-      width: 80px; height: 80px; background: gray; font-size: 2em;
-      display: flex; justify-content: center; align-items: center;
-      cursor: pointer; color: white; user-select: none;
-    }
-    .flipped { background: orange; }
-    .matched { background: green; pointer-events: none; }
-    #status { margin-top: 20px; }
+    #board { display: grid; grid-template-columns: repeat(4, 80px); gap: 10px; justify-content: center; margin-top: 20px; }
+    .card { width: 80px; height: 80px; font-size: 24px; background: lightgray; display: flex; align-items: center; justify-content: center; cursor: pointer; border-radius: 8px; }
+    .flipped { background: white; }
   </style>
 </head>
 <body>
-  <h1>2人用 神経衰弱</h1>
-  <div id="board"></div>
-  <div id="status"></div>
+  <h2>2人用神経衰弱（Firebase同期）</h2>  <div>
+    <button onclick="createRoom()">ルーム作成</button>
+    <input id="roomInput" placeholder="ルームIDを入力">
+    <button onclick="joinRoom()">ルーム参加</button>
+  </div>  <p id="info"></p>
+  <div id="board"></div>  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyA0D7fOnIvQFU3O29q6bb_6gj5tWN23N0s",
+      authDomain: "memory-game-10e98.firebaseapp.com",
+      databaseURL: "https://memory-game-10e98-default-rtdb.firebaseio.com",
+      projectId: "memory-game-10e98",
+      storageBucket: "memory-game-10e98.firebasestorage.app",
+      messagingSenderId: "435852264433",
+      appId: "1:435852264433:web:63cdbef6f7742b34b13a50",
+      measurementId: "G-FRDGGQNEZY"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
 
-  <script>
-    const board = document.getElementById('board');
-    const statusDiv = document.getElementById('status');
-    const players = [0, 0];
-    let currentPlayer = 0;
-    let flippedCards = [];
+    let playerId = "player" + Math.floor(Math.random() * 10000);
+    let currentRoom = null;
+    let firstCard = null;
     let lock = false;
 
-    const cardValues = [...Array(12).keys(), ...Array(12).keys()]; // 12ペア
-    cardValues.sort(() => Math.random() - 0.5);
-
-    cardValues.forEach((val, idx) => {
-      const card = document.createElement('div');
-      card.className = 'card';
-      card.dataset.value = val;
-      card.dataset.index = idx;
-      card.innerText = '';
-      board.appendChild(card);
-    });
-
-    function updateStatus() {
-      statusDiv.innerHTML =
-        `プレイヤー${currentPlayer + 1}の番です<br>` +
-        players.map((s, i) => `プレイヤー${i + 1}: ${s}点`).join(' | ');
+    function createRoom() {
+      const roomId = Math.random().toString(36).substr(2, 6);
+      const cards = shuffle([...Array(8).keys(), ...Array(8).keys()]);
+      const board = cards.map(v => ({ value: v, flipped: false, matched: false }));
+      db.ref("rooms/" + roomId).set({
+        board,
+        turn: playerId,
+        scores: { [playerId]: 0 },
+        players: [playerId]
+      });
+      document.getElementById("roomInput").value = roomId;
+      joinRoom();
     }
 
-    function checkGameOver() {
-      const matchedCount = document.querySelectorAll('.matched').length;
-      if (matchedCount === cardValues.length) {
-        const [score1, score2] = players;
-        const winner = score1 > score2 ? "プレイヤー1" : score2 > score1 ? "プレイヤー2" : "引き分け";
-        alert(`ゲーム終了！勝者: ${winner}`);
-      }
-    }
-
-    board.addEventListener('click', (e) => {
-      const card = e.target;
-      if (!card.classList.contains('card') || lock || card.classList.contains('flipped') || card.classList.contains('matched')) return;
-
-      card.classList.add('flipped');
-      card.innerText = card.dataset.value;
-      flippedCards.push(card);
-
-      if (flippedCards.length === 2) {
-        lock = true;
-        const [card1, card2] = flippedCards;
-
-        if (card1.dataset.value === card2.dataset.value) {
-          setTimeout(() => {
-            card1.classList.add('matched');
-            card2.classList.add('matched');
-            players[currentPlayer]++;
-            flippedCards = [];
-            lock = false;
-            checkGameOver();
-            updateStatus();
-          }, 500);
-        } else {
-          setTimeout(() => {
-            card1.classList.remove('flipped');
-            card2.classList.remove('flipped');
-            card1.innerText = '';
-            card2.innerText = '';
-            flippedCards = [];
-            lock = false;
-            currentPlayer = (currentPlayer + 1) % 2;
-            updateStatus();
-          }, 1000);
+    function joinRoom() {
+      const roomId = document.getElementById("roomInput").value;
+      if (!roomId) return;
+      currentRoom = roomId;
+      db.ref(`rooms/${roomId}/players`).once("value", snap => {
+        const players = snap.val() || [];
+        if (!players.includes(playerId)) {
+          players.push(playerId);
+          db.ref(`rooms/${roomId}/players`).set(players);
+          db.ref(`rooms/${roomId}/scores/${playerId}`).set(0);
         }
-      }
-    });
+      });
+      db.ref("rooms/" + roomId).on("value", snapshot => {
+        const data = snapshot.val();
+        if (!data) return;
+        render(data);
+      });
+    }
 
-    updateStatus();
-  </script>
-</body>
+    function render(data) {
+      const board = document.getElementById("board");
+      board.innerHTML = "";
+      data.board.forEach((card, i) => {
+        const div = document.createElement("div");
+        div.className = "card";
+        if (card.flipped || card.matched) {
+          div.classList.add("flipped");
+          div.textContent = card.value;
+        }
+        div.onclick = () => handleFlip(i, data);
+        board.appendChild(div);
+      });
+
+      const turn = data.turn;
+      const scores = data.scores;
+      const info = document.getElementById("info");
+      info.innerHTML = `あなたのID: ${playerId}<br>現在のターン: ${turn}<br>スコア: ` +
+        Object.entries(scores).map(([k, v]) => `${k}: ${v}`).join(" / ");
+    }
+
+    function handleFlip(index, data) {
+      if (data.turn !== playerId || lock) return;
+      const card = data.board[index];
+      if (card.flipped || card.matched) return;
+      card.flipped = true;
+      db.ref(`rooms/${currentRoom}/board/${index}`).set(card);
+
+      if (!firstCard) {
+        firstCard = { index, value: card.value };
+      } else {
+        lock = true;
+        setTimeout(() => {
+          const secondCard = data.board[index];
+          if (firstCard.value === secondCard.value) {
+            db.ref(`rooms/${currentRoom}/board/${firstCard.index}/matched`).set(true);
+            db.ref(`rooms/${currentRoom}/board/${index}/matched`).set(true);
+            db.ref(`rooms/${currentRoom}/scores/${playerId}`).set((data.scores[playerId] || 0) + 1);
+          } else {
+            db.ref(`rooms/${currentRoom}/board/${firstCard.index}/flipped`).set(false);
+            db.ref(`rooms/${currentRoom}/board/${index}/flipped`).set(false);
+            const other = data.players.find(p => p !== playerId);
+            db.ref(`rooms/${currentRoom}/turn`).set(other);
+          }
+          firstCard = null;
+          lock = false;
+        }, 1000);
+      }
+    }
+
+    function shuffle(array) {
+      for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+      return array;
+    }
+  </script></body>
 </html>
