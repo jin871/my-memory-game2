@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>2人用神経衰弱</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; }
+    #board { display: grid; grid-template-columns: repeat(6, 80px); gap: 10px; justify-content: center; margin-top: 20px; }
+    .card {
+      width: 80px; height: 80px; background: gray; font-size: 2em;
+      display: flex; justify-content: center; align-items: center;
+      cursor: pointer; color: white; user-select: none;
+    }
+    .flipped { background: orange; }
+    .matched { background: green; pointer-events: none; }
+    #status { margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h1>2人用 神経衰弱</h1>
+  <div id="board"></div>
+  <div id="status"></div>
+
+  <script>
+    const board = document.getElementById('board');
+    const statusDiv = document.getElementById('status');
+    const players = [0, 0];
+    let currentPlayer = 0;
+    let flippedCards = [];
+    let lock = false;
+
+    const cardValues = [...Array(12).keys(), ...Array(12).keys()]; // 12ペア
+    cardValues.sort(() => Math.random() - 0.5);
+
+    cardValues.forEach((val, idx) => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.dataset.value = val;
+      card.dataset.index = idx;
+      card.innerText = '';
+      board.appendChild(card);
+    });
+
+    function updateStatus() {
+      statusDiv.innerHTML =
+        `プレイヤー${currentPlayer + 1}の番です<br>` +
+        players.map((s, i) => `プレイヤー${i + 1}: ${s}点`).join(' | ');
+    }
+
+    function checkGameOver() {
+      const matchedCount = document.querySelectorAll('.matched').length;
+      if (matchedCount === cardValues.length) {
+        const [score1, score2] = players;
+        const winner = score1 > score2 ? "プレイヤー1" : score2 > score1 ? "プレイヤー2" : "引き分け";
+        alert(`ゲーム終了！勝者: ${winner}`);
+      }
+    }
+
+    board.addEventListener('click', (e) => {
+      const card = e.target;
+      if (!card.classList.contains('card') || lock || card.classList.contains('flipped') || card.classList.contains('matched')) return;
+
+      card.classList.add('flipped');
+      card.innerText = card.dataset.value;
+      flippedCards.push(card);
+
+      if (flippedCards.length === 2) {
+        lock = true;
+        const [card1, card2] = flippedCards;
+
+        if (card1.dataset.value === card2.dataset.value) {
+          setTimeout(() => {
+            card1.classList.add('matched');
+            card2.classList.add('matched');
+            players[currentPlayer]++;
+            flippedCards = [];
+            lock = false;
+            checkGameOver();
+            updateStatus();
+          }, 500);
+        } else {
+          setTimeout(() => {
+            card1.classList.remove('flipped');
+            card2.classList.remove('flipped');
+            card1.innerText = '';
+            card2.innerText = '';
+            flippedCards = [];
+            lock = false;
+            currentPlayer = (currentPlayer + 1) % 2;
+            updateStatus();
+          }, 1000);
+        }
+      }
+    });
+
+    updateStatus();
+  </script>
+</body>
+</html>
