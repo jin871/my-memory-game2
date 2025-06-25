@@ -3,593 +3,212 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>神経衰弱 - Memory Match</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Google Fonts: Inter -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=M+PLUS+Rounded+1c:wght@700&display=swap" rel="stylesheet">
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide-react@latest/dist/lucide-react.js"></script>
-
+    <title>神経衰弱ゲーム</title>
+    
     <style>
         body {
-            font-family: 'Inter', 'M PLUS Rounded 1c', sans-serif;
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background-color: #f0f0f0;
+            margin: 0;
+            min-height: 100vh;
         }
-        /* カードのコンテナ スタイル */
-        .card-container {
-            perspective: 1000px;
+
+        h1 {
+            color: #333;
         }
-        /* カードの内側（アニメーション用） */
-        .card-inner {
+
+        #game-board {
+            display: grid;
+            grid-template-columns: repeat(4, 100px); /* 4列で表示 */
+            gap: 10px;
+            margin: 20px;
+            perspective: 1000px; /* 3D効果のための視点 */
+        }
+
+        .card {
+            width: 100px;
+            height: 140px;
             position: relative;
-            width: 100%;
-            height: 100%;
-            transition: transform 0.6s;
+            cursor: pointer;
             transform-style: preserve-3d;
+            transition: transform 0.6s;
         }
-        /* カードが裏返った時のスタイル */
-        .card-container.flipped .card-inner {
-            transform: rotateY(180deg);
+
+        .card.flipped {
+            transform: rotateY(180deg); /* めくれた状態 */
         }
-        /* カードの表と裏の共通スタイル */
+
         .card-face {
             position: absolute;
             width: 100%;
             height: 100%;
-            -webkit-backface-visibility: hidden;
-            backface-visibility: hidden;
+            backface-visibility: hidden; /* 裏面を非表示にする */
+            border-radius: 10px;
             display: flex;
             align-items: center;
             justify-content: center;
-            border-radius: 0.5rem; /* 8px */
-        }
-        /* カードの裏面 */
-        .card-back {
-            background-color: #93c5fd; /* blue-300 */
-            color: white;
+            font-size: 40px;
             font-weight: bold;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
-        /* カードの表面 */
+
         .card-front {
-            background-color: #f0f9ff; /* sky-50 */
-            color: #0c4a6e; /* sky-900 */
-            transform: rotateY(180deg);
-            font-size: 2rem; /* 32px */
-            font-weight: 700;
+            background-color: #ffffff;
+            color: #333;
+            transform: rotateY(180deg); /* 初期状態で裏側を向けておく */
         }
-         /* マッチしたカードのスタイル */
-        .matched {
-            opacity: 0.5;
-            transform: scale(0.95);
+
+        .card-back {
+            background-color: #4a90e2;
+            color: white;
+            border: 3px solid white;
         }
-        .matched .card-inner {
-            border: 2px solid #22c55e; /* green-500 */
-            border-radius: 0.5rem;
+
+        .card-back::after {
+            content: '?'; /* 裏面のデザイン */
+        }
+
+        .card.matched {
+            opacity: 0.5; /* 揃ったカードは半透明に */
+            cursor: default;
+        }
+
+        #reset-button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background-color: #4CAF50;
+            color: white;
+            margin-top: 20px;
         }
     </style>
-</head>
-<body class="bg-sky-50 text-slate-800 flex items-center justify-center min-h-screen">
+    </head>
+<body>
+    <h1>神経衰弱ゲーム</h1>
+    <div id="game-board"></div>
+    <button id="reset-button">リセット</button>
 
-    <div id="app" class="w-full max-w-2xl mx-auto p-4">
-        <!-- ローディング画面 -->
-        <div id="loading" class="text-center">
-            <p class="text-lg animate-pulse">接続中...</p>
-        </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const gameBoard = document.getElementById('game-board');
+            const resetButton = document.getElementById('reset-button');
+            // カードの絵柄（今回は数字）
+            const symbols = ['1', '1', '2', '2', '3', '3', '4', '4', '5', '5', '6', '6', '7', '7', '8', '8'];
 
-        <!-- ロビー画面 -->
-        <div id="lobby" class="hidden">
-            <div class="bg-white p-8 rounded-xl shadow-lg text-center">
-                <h1 class="text-3xl font-bold text-sky-800 mb-6">神経衰弱オンライン</h1>
-                <div class="mb-4">
-                    <input type="text" id="playerNameInput" placeholder="あなたの名前" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500">
-                </div>
-                <button id="createRoomBtn" class="w-full bg-sky-500 hover:bg-sky-600 text-white font-bold py-3 px-4 rounded-lg transition mb-4">
-                    ルームを作成
-                </button>
-                <div class="relative flex py-5 items-center">
-                    <div class="flex-grow border-t border-gray-300"></div>
-                    <span class="flex-shrink mx-4 text-gray-400">または</span>
-                    <div class="flex-grow border-t border-gray-300"></div>
-                </div>
-                <div class="flex gap-2">
-                    <input type="text" id="roomInput" placeholder="ルームID" class="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500">
-                    <button id="joinRoomBtn" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 px-4 rounded-lg transition">参加</button>
-                </div>
-                 <p id="lobbyError" class="text-red-500 mt-4 h-5"></p>
-            </div>
-        </div>
+            let flippedCards = [];
+            let matchedPairs = 0;
+            let lockBoard = false; // 2枚めくった後の操作を一時的に無効にするフラグ
 
-        <!-- ゲーム画面 -->
-        <div id="game" class="hidden">
-            <!-- 上部情報パネル -->
-            <div class="bg-white p-4 rounded-xl shadow-md mb-6">
-                <div class="flex justify-between items-center mb-4">
-                    <div class="flex items-center gap-2">
-                        <span class="text-sm font-semibold text-slate-500">ルームID:</span>
-                        <span id="roomIdDisplay" class="font-mono bg-slate-100 px-2 py-1 rounded"></span>
-                        <button id="copyRoomIdBtn" title="ルームIDをコピー" class="p-1.5 text-slate-500 hover:bg-slate-200 rounded-md transition">
-                           <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
-                        </button>
-                    </div>
-                     <button id="leaveRoomBtn" class="bg-red-500 hover:bg-red-600 text-white text-sm font-bold py-2 px-3 rounded-lg transition">ルーム退出</button>
-                </div>
-                <!-- プレイヤー情報とスコア -->
-                <div id="playersInfo" class="grid grid-cols-2 gap-4 text-center">
-                    <!-- Player 1 Info -->
-                    <div id="player1Info" class="p-3 rounded-lg border-2 border-transparent">
-                        <p id="player1Name" class="font-bold text-lg truncate">プレイヤー1</p>
-                        <p class="text-2xl font-bold"><span id="player1Score">0</span>ペア</p>
-                    </div>
-                    <!-- Player 2 Info -->
-                    <div id="player2Info" class="p-3 rounded-lg border-2 border-transparent">
-                        <p id="player2Name" class="font-bold text-lg truncate">待機中...</p>
-                        <p class="text-2xl font-bold"><span id="player2Score">0</span>ペア</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ゲームボード -->
-            <div id="board" class="grid grid-cols-4 sm:grid-cols-4 md:grid-cols-6 gap-3 sm:gap-4"></div>
-
-            <!-- ゲームオーバーモーダル -->
-            <div id="gameOverModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-                <div class="bg-white p-8 rounded-xl shadow-lg text-center transform transition-all scale-95 opacity-0">
-                    <h2 id="gameOverTitle" class="text-3xl font-bold text-sky-800 mb-4">ゲーム終了！</h2>
-                    <p id="gameOverMessage" class="text-lg mb-6"></p>
-                    <button id="newGameBtn" class="w-full bg-sky-500 hover:bg-sky-600 text-white font-bold py-3 px-4 rounded-lg transition">
-                        もう一度プレイ
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, collection, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // --- DOM Elements ---
-        const loadingEl = document.getElementById('loading');
-        const lobbyEl = document.getElementById('lobby');
-        const gameEl = document.getElementById('game');
-        const playerNameInput = document.getElementById('playerNameInput');
-        const createRoomBtn = document.getElementById('createRoomBtn');
-        const joinRoomBtn = document.getElementById('joinRoomBtn');
-        const roomInput = document.getElementById('roomInput');
-        const lobbyError = document.getElementById('lobbyError');
-        const boardEl = document.getElementById('board');
-        const roomIdDisplay = document.getElementById('roomIdDisplay');
-        const copyRoomIdBtn = document.getElementById('copyRoomIdBtn');
-        const leaveRoomBtn = document.getElementById('leaveRoomBtn');
-        const gameOverModal = document.getElementById('gameOverModal');
-
-        // --- Firebase Setup ---
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { apiKey: "YOUR_API_KEY", authDomain: "...", projectId: "..." }; // Fallback for local dev
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
-
-        // --- Game State ---
-        let userId = null;
-        let playerName = '';
-        let currentRoomId = null;
-        let unsubscribeRoom = null;
-        let cardLock = false;
-
-        const EMOJIS = ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮'];
-
-        // --- Authentication ---
-        onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                userId = user.uid;
-                loadingEl.style.display = 'none';
-                lobbyEl.style.display = 'block';
-            }
-        });
-
-        async function initializeAuth() {
-            try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
+            // 配列をシャッフルする関数 (Fisher-Yates algorithm)
+            function shuffle(array) {
+                for (let i = array.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [array[i], array[j]] = [array[j], array[i]];
                 }
-            } catch (error) {
-                console.error("Authentication failed:", error);
-                loadingEl.textContent = "認証に失敗しました。ページをリロードしてください。";
             }
-        }
-        
-        // --- Core Functions ---
-        
-        function getPlayerName() {
-            const name = playerNameInput.value.trim();
-            return name || `Player${Math.floor(Math.random() * 1000)}`;
-        }
 
-        function shuffle(array) {
-            let currentIndex = array.length, randomIndex;
-            while (currentIndex !== 0) {
-                randomIndex = Math.floor(Math.random() * currentIndex);
-                currentIndex--;
-                [array[currentIndex], array[randomIndex]] = [array[randomIndex], array[currentIndex]];
+            // ゲームボードを作成する関数
+            function createBoard() {
+                // 初期化
+                gameBoard.innerHTML = '';
+                flippedCards = [];
+                matchedPairs = 0;
+                lockBoard = false;
+
+                shuffle(symbols);
+
+                symbols.forEach(symbol => {
+                    const card = document.createElement('div');
+                    card.classList.add('card');
+                    card.dataset.symbol = symbol;
+
+                    const cardFront = document.createElement('div');
+                    cardFront.classList.add('card-face', 'card-front');
+                    cardFront.textContent = symbol;
+
+                    const cardBack = document.createElement('div');
+                    cardBack.classList.add('card-face', 'card-back');
+
+                    card.appendChild(cardFront);
+                    card.appendChild(cardBack);
+
+                    card.addEventListener('click', flipCard);
+                    gameBoard.appendChild(card);
+                });
             }
-            return array;
-        }
 
-        async function createRoom() {
-            playerName = getPlayerName();
-            const roomId = Math.random().toString(36).substring(2, 8).toUpperCase();
-            const roomRef = doc(db, `artifacts/${appId}/public/data/memory-games`, roomId);
-
-            const cardValues = shuffle([...EMOJIS.slice(0, 9), ...EMOJIS.slice(0, 9)]); // 18 cards for a 6x3 board
-            const board = cardValues.map((value, index) => ({
-                id: index,
-                value: value,
-                isFlipped: false,
-                isMatched: false,
-            }));
-
-            const newRoom = {
-                roomId: roomId,
-                board: board,
-                players: {
-                    [userId]: { name: playerName, score: 0 }
-                },
-                turn: userId,
-                firstCard: null,
-                gameState: 'waiting', // waiting, playing, finished
-                winner: null
-            };
-
-            try {
-                await setDoc(roomRef, newRoom);
-                await joinRoom(roomId);
-            } catch (error) {
-                console.error("Error creating room: ", error);
-                lobbyError.textContent = "ルームの作成に失敗しました。";
-            }
-        }
-
-        async function joinRoom(roomIdFromArg) {
-            const roomId = roomIdFromArg || roomInput.value.trim().toUpperCase();
-            if (!roomId) {
-                lobbyError.textContent = "ルームIDを入力してください。";
-                return;
-            }
-            
-            playerName = getPlayerName();
-            const roomRef = doc(db, `artifacts/${appId}/public/data/memory-games`, roomId);
-
-            try {
-                const roomSnap = await getDoc(roomRef);
-                if (!roomSnap.exists()) {
-                    lobbyError.textContent = "ルームが見つかりません。";
+            // カードをめくる関数
+            function flipCard() {
+                // ボードがロックされている、または既にめくられている、または揃っているカードは無視
+                if (lockBoard || this.classList.contains('flipped') || this.classList.contains('matched')) {
                     return;
                 }
 
-                const roomData = roomSnap.data();
-                const players = roomData.players || {};
-                
-                if (Object.keys(players).length >= 2 && !players[userId]) {
-                     lobbyError.textContent = "このルームは満員です。";
-                     return;
+                this.classList.add('flipped');
+                flippedCards.push(this);
+
+                // 2枚のカードがめくられたら
+                if (flippedCards.length === 2) {
+                    lockBoard = true; // ボードをロック
+                    checkForMatch();
                 }
-                
-                if (!players[userId]) {
-                    await updateDoc(roomRef, {
-                        [`players.${userId}`]: { name: playerName, score: 0 },
-                        gameState: 'playing'
-                    });
+            }
+
+            // ペアが一致するかチェックする関数
+            function checkForMatch() {
+                const [card1, card2] = flippedCards;
+                const isMatch = card1.dataset.symbol === card2.dataset.symbol;
+
+                if (isMatch) {
+                    disableCards();
+                } else {
+                    unflipCards();
                 }
-                
-                currentRoomId = roomId;
-                lobbyEl.style.display = 'none';
-                gameEl.style.display = 'block';
-
-                if (unsubscribeRoom) unsubscribeRoom();
-                unsubscribeRoom = onSnapshot(roomRef, renderGame);
-
-            } catch (error) {
-                console.error("Error joining room: ", error);
-                lobbyError.textContent = "ルームへの参加に失敗しました。";
-            }
-        }
-        
-        async function leaveRoom() {
-            if (unsubscribeRoom) {
-                unsubscribeRoom();
-                unsubscribeRoom = null;
-            }
-            // Optional: Remove player from DB if they leave mid-game
-            if (currentRoomId && userId) {
-                 const roomRef = doc(db, `artifacts/${appId}/public/data/memory-games`, currentRoomId);
-                 // This is complex logic (what if they are the host?). For now, we just disconnect.
-                 // A simple approach is to just navigate back to the lobby.
-            }
-            
-            currentRoomId = null;
-            gameEl.style.display = 'none';
-            lobbyEl.style.display = 'block';
-            roomInput.value = '';
-            lobbyError.textContent = '';
-        }
-
-        function renderGame(docSnap) {
-            if (!docSnap.exists()) {
-                console.warn("Room data not found, returning to lobby.");
-                leaveRoom();
-                return;
-            }
-            const data = docSnap.data();
-            
-            // Render board
-            renderBoard(data.board, data.turn, data.gameState);
-            
-            // Render player info
-            renderPlayerInfo(data.players, data.turn);
-
-            // Update room ID display
-            roomIdDisplay.textContent = data.roomId;
-            
-            // Check for game over
-            if(data.gameState === 'finished') {
-                showGameOver(data);
-            } else {
-                hideGameOver();
-            }
-        }
-
-        function renderBoard(board, turn, gameState) {
-            boardEl.innerHTML = '';
-            board.forEach(card => {
-                const cardContainer = document.createElement('div');
-                cardContainer.className = 'card-container aspect-square';
-                if (card.isFlipped) cardContainer.classList.add('flipped');
-                if (card.isMatched) cardContainer.classList.add('matched');
-
-                const cardInner = document.createElement('div');
-                cardInner.className = 'card-inner';
-
-                const cardFaceBack = document.createElement('div');
-                cardFaceBack.className = 'card-face card-back';
-                cardFaceBack.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-8 h-8 opacity-50"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z"/><path d="m15 14-3-3-3 3"/></svg>`;
-
-                const cardFaceFront = document.createElement('div');
-                cardFaceFront.className = 'card-face card-front';
-                cardFaceFront.textContent = card.value;
-                
-                cardInner.appendChild(cardFaceBack);
-                cardInner.appendChild(cardFaceFront);
-                cardContainer.appendChild(cardInner);
-
-                cardContainer.addEventListener('click', () => {
-                    if (turn === userId && !card.isFlipped && !card.isMatched && !cardLock && gameState === 'playing') {
-                        handleCardClick(card.id);
-                    }
-                });
-                boardEl.appendChild(cardContainer);
-            });
-        }
-
-        function renderPlayerInfo(players, turn) {
-            const playerIds = Object.keys(players);
-            const p1Id = playerIds[0];
-            const p2Id = playerIds[1];
-            
-            const p1Info = {
-                nameEl: document.getElementById('player1Name'),
-                scoreEl: document.getElementById('player1Score'),
-                containerEl: document.getElementById('player1Info')
-            };
-            const p2Info = {
-                nameEl: document.getElementById('player2Name'),
-                scoreEl: document.getElementById('player2Score'),
-                containerEl: document.getElementById('player2Info')
-            };
-
-            if (p1Id) {
-                p1Info.nameEl.textContent = players[p1Id].name + (p1Id === userId ? " (あなた)" : "");
-                p1Info.scoreEl.textContent = players[p1Id].score;
-                p1Info.containerEl.classList.toggle('border-sky-500', turn === p1Id);
-                p1Info.containerEl.classList.toggle('bg-sky-100', turn === p1Id);
             }
 
-            if (p2Id) {
-                p2Info.nameEl.textContent = players[p2Id].name + (p2Id === userId ? " (あなた)" : "");
-                p2Info.scoreEl.textContent = players[p2Id].score;
-                p2Info.containerEl.classList.toggle('border-sky-500', turn === p2Id);
-                p2Info.containerEl.classList.toggle('bg-sky-100', turn === p2Id);
+            // 一致した場合の処理
+            function disableCards() {
+                flippedCards[0].classList.add('matched');
+                flippedCards[1].classList.add('matched');
 
-            } else {
-                p2Info.nameEl.textContent = "待機中...";
-                p2Info.scoreEl.textContent = "0";
-                p2Info.containerEl.classList.remove('border-sky-500', 'bg-sky-100');
-            }
-        }
-        
-        async function handleCardClick(cardId) {
-            cardLock = true;
-            const roomRef = doc(db, `artifacts/${appId}/public/data/memory-games`, currentRoomId);
-            
-            try {
-                const roomSnap = await getDoc(roomRef);
-                if (!roomSnap.exists()) return;
-                let roomData = roomSnap.data();
-                
-                const board = roomData.board;
-                const clickedCard = board.find(c => c.id === cardId);
+                matchedPairs++;
+                resetBoardState();
 
-                // Flip the card
-                clickedCard.isFlipped = true;
-                await updateDoc(roomRef, { board: board });
-                
-                // Refresh data after flip
-                roomSnap = await getDoc(roomRef);
-                roomData = roomSnap.data();
-
-                if (roomData.firstCard) { // This is the second card
-                    const firstCard = roomData.board.find(c => c.id === roomData.firstCard.id);
-                    
-                    if (firstCard.value === clickedCard.value) { // Match
-                        // Update score
-                        const newScore = (roomData.players[userId].score || 0) + 1;
-                        
-                        // Update matched status
-                        const updatedBoard = roomData.board.map(c => {
-                            if (c.id === firstCard.id || c.id === clickedCard.id) {
-                                return { ...c, isMatched: true };
-                            }
-                            return c;
-                        });
-                        
-                        const updates = {
-                            board: updatedBoard,
-                            firstCard: null,
-                            [`players.${userId}.score`]: newScore
-                        };
-
-                        // Check for game over
-                        const allMatched = updatedBoard.every(c => c.isMatched);
-                        if (allMatched) {
-                            updates.gameState = 'finished';
-                            // Determine winner
-                            const players = {...roomData.players, [userId]: {...roomData.players[userId], score: newScore}};
-                            const winnerId = Object.keys(players).reduce((a, b) => players[a].score > players[b].score ? a : b);
-                            updates.winner = { id: winnerId, name: players[winnerId].name };
-                        }
-
-                        await updateDoc(roomRef, updates);
-                        cardLock = false;
-
-                    } else { // No match
-                        const otherPlayerId = Object.keys(roomData.players).find(id => id !== userId);
-                        
-                        setTimeout(async () => {
-                             const updatedBoard = roomData.board.map(c => {
-                                if (c.id === firstCard.id || c.id === clickedCard.id) {
-                                    return { ...c, isFlipped: false };
-                                }
-                                return c;
-                            });
-
-                            await updateDoc(roomRef, {
-                                board: updatedBoard,
-                                firstCard: null,
-                                turn: otherPlayerId || userId // Pass turn
-                            });
-                            cardLock = false;
-                        }, 1200);
-                    }
-
-                } else { // This is the first card
-                    await updateDoc(roomRef, { firstCard: { id: clickedCard.id, value: clickedCard.value } });
-                    cardLock = false;
-                }
-            } catch (error) {
-                console.error("Error handling card click:", error);
-                cardLock = false;
-            }
-        }
-        
-        async function resetGame() {
-            if (!currentRoomId) return;
-            const roomRef = doc(db, `artifacts/${appId}/public/data/memory-games`, currentRoomId);
-            const cardValues = shuffle([...EMOJIS.slice(0, 9), ...EMOJIS.slice(0, 9)]);
-            const newBoard = cardValues.map((value, index) => ({
-                id: index,
-                value: value,
-                isFlipped: false,
-                isMatched: false,
-            }));
-
-            try {
-                const roomSnap = await getDoc(roomRef);
-                const roomData = roomSnap.data();
-
-                const playerIds = Object.keys(roomData.players);
-                const playersReset = {};
-                playerIds.forEach(id => {
-                    playersReset[`players.${id}.score`] = 0;
-                });
-                
-                await updateDoc(roomRef, {
-                    ...playersReset,
-                    board: newBoard,
-                    turn: playerIds[Math.floor(Math.random() * playerIds.length)],
-                    firstCard: null,
-                    gameState: 'playing',
-                    winner: null
-                });
-                
-                hideGameOver();
-                
-            } catch(error) {
-                console.error("Failed to reset game:", error);
-            }
-        }
-        
-        function showGameOver(data) {
-            const modal = document.getElementById('gameOverModal');
-            const title = document.getElementById('gameOverTitle');
-            const message = document.getElementById('gameOverMessage');
-            
-            const players = Object.values(data.players);
-            const score1 = players[0]?.score || 0;
-            const score2 = players[1]?.score || 0;
-
-            if (score1 === score2) {
-                title.textContent = "引き分け！";
-                message.textContent = `両者とも${score1}ペア獲得しました。`;
-            } else {
-                title.textContent = `${data.winner.name} の勝利！`;
-                message.textContent = `${players[0].name}: ${score1}ペア vs ${players[1]?.name || '?'}: ${score2}ペア`;
-            }
-
-            modal.style.display = 'flex';
-            setTimeout(() => {
-                modal.children[0].classList.remove('scale-95', 'opacity-0');
-                modal.children[0].classList.add('scale-100', 'opacity-100');
-            }, 10);
-        }
-
-        function hideGameOver() {
-             const modal = document.getElementById('gameOverModal');
-             modal.style.display = 'none';
-             modal.children[0].classList.add('scale-95', 'opacity-0');
-             modal.children[0].classList.remove('scale-100', 'opacity-100');
-        }
-
-        function copyRoomId() {
-            const roomId = roomIdDisplay.textContent;
-            if (navigator.clipboard) {
-                navigator.clipboard.writeText(roomId).then(() => {
-                    // Visual feedback
-                    copyRoomIdBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="text-green-500"><path d="M20 6 9 17l-5-5"/></svg>`;
+                // 全てのペアが揃ったらゲームクリア
+                if (matchedPairs === symbols.length / 2) {
                     setTimeout(() => {
-                         copyRoomIdBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>`;
-                    }, 1500);
-                });
+                        alert('ゲームクリア！おめでとうございます！');
+                    }, 500);
+                }
             }
-        }
 
-        // --- Event Listeners ---
-        createRoomBtn.addEventListener('click', createRoom);
-        joinRoomBtn.addEventListener('click', () => joinRoom());
-        roomInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') joinRoom();
+            // 一致しなかった場合の処理
+            function unflipCards() {
+                setTimeout(() => {
+                    flippedCards[0].classList.remove('flipped');
+                    flippedCards[1].classList.remove('flipped');
+                    resetBoardState();
+                }, 1000); // 1秒後に裏返す
+            }
+
+            // ボードの状態をリセット（次のターンへ）
+            function resetBoardState() {
+                flippedCards = [];
+                lockBoard = false;
+            }
+            
+            // リセットボタンのイベントリスナー
+            resetButton.addEventListener('click', createBoard);
+
+            // ゲーム開始
+            createBoard();
         });
-        copyRoomIdBtn.addEventListener('click', copyRoomId);
-        leaveRoomBtn.addEventListener('click', leaveRoom);
-        document.getElementById('newGameBtn').addEventListener('click', resetGame);
-        
-        // --- Initialization ---
-        initializeAuth();
     </script>
-</body>
+    </body>
 </html>
