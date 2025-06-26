@@ -255,7 +255,6 @@
         // 匿名認証でFirebaseにサインイン
         signInAnonymously(auth).catch(error => {
             console.error("Anonymous sign-in failed:", error);
-            // 【修正点】エラーの種類に応じて、より具体的なメッセージを表示
             if (error.code === 'auth/configuration-not-found') {
                 alert('認証エラー: Firebaseプロジェクトで匿名認証が有効になっていない可能性があります。Firebaseコンソールの「Authentication」→「Sign-in method」で匿名認証を有効にしてください。');
             } else if (error.code === 'auth/admin-restricted-operation') {
@@ -383,6 +382,7 @@
         // --- ゲーム描画 ---
 
         function renderGame(roomData) {
+            // データが不完全な場合は処理を中断
             if (!roomData || !roomData.players || !roomData.gameState || !roomData.gameState.board) {
                 console.warn("Incomplete room data received, skipping render:", roomData);
                 return;
@@ -394,26 +394,29 @@
             
             const hostUid = gameState.hostUid;
             const playerIds = Object.keys(players);
-            const otherPlayerUid = playerIds.find(id => id !== hostUid);
-
+            
             const player1Info = document.getElementById('player1-info');
             const player2Info = document.getElementById('player2-info');
 
-            // 常にホストをプレイヤー1（左側）に表示
-            if (hostUid && players[hostUid]) {
-                player1Info.textContent = `${players[hostUid].name}: ${players[hostUid].score || 0}`;
-                player1Info.classList.toggle('current-turn', gameState.currentPlayerUid === hostUid);
-            }
-
-            // ホスト以外のプレイヤーをプレイヤー2（右側）に表示
-            if (otherPlayerUid && players[otherPlayerUid]) {
-                player2Info.textContent = `${players[otherPlayerUid].name}: ${players[otherPlayerUid].score || 0}`;
-                player2Info.classList.toggle('current-turn', gameState.currentPlayerUid === otherPlayerUid);
-            } else {
-                player2Info.textContent = "待機中...";
-                player2Info.classList.remove('current-turn');
-            }
+            // 【修正点】表示を毎回リセットしてから、再構築する
+            player1Info.textContent = '';
+            player1Info.classList.remove('current-turn');
+            player2Info.textContent = '待機中...';
+            player2Info.classList.remove('current-turn');
             
+            // 全プレイヤーIDをループして、ホストかそれ以外かで表示を振り分ける
+            playerIds.forEach(pid => {
+                if (pid === hostUid) {
+                    // ホストを左側（プレイヤー1）に表示
+                    player1Info.textContent = `${players[pid].name}: ${players[pid].score || 0}`;
+                    player1Info.classList.toggle('current-turn', gameState.currentPlayerUid === pid);
+                } else {
+                    // ホスト以外を右側（プレイヤー2）に表示
+                    player2Info.textContent = `${players[pid].name}: ${players[pid].score || 0}`;
+                    player2Info.classList.toggle('current-turn', gameState.currentPlayerUid === pid);
+                }
+            });
+
             document.getElementById('room-id-display').innerHTML = `<span class="label">ID:</span> ${currentRoomId}`;
             
             gameBoard.innerHTML = '';
