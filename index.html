@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>マルチプレイ神経衰弱</title>
     
+    <!-- カードめくり音用のTone.jsを読み込み -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
+
     <style>
         /* 基本スタイル */
         body {
@@ -71,10 +74,10 @@
             cursor: not-allowed;
         }
         
-        #create-room-btn {
+        #create-room-btn, #ai-play-btn {
             background-color: #2ecc71;
         }
-        #create-room-btn:hover {
+        #create-room-btn:hover, #ai-play-btn:hover {
             background-color: #27ae60;
         }
 
@@ -125,13 +128,18 @@
 
         .card {
             width: 100%;
-            aspect-ratio: 2 / 3; /* 幅に対する高さの比率 */
+            aspect-ratio: 2 / 3;
             position: relative;
             cursor: pointer;
             transform-style: preserve-3d;
+            /* 【アニメーション修正】transitionにtransformを追加 */
             transition: transform 0.6s;
         }
 
+        /* 【アニメーション追加】クリック時に少し浮き上がる効果 */
+        .card.flipping {
+            transform: scale(1.05) rotateY(180deg);
+        }
         .card.flipped {
             transform: rotateY(180deg);
         }
@@ -150,7 +158,6 @@
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
         }
         
-        /* カードのサイズに応じてフォントサイズを調整 */
         @media (max-width: 480px) {
             .card-face { font-size: 1.8em; }
         }
@@ -186,23 +193,23 @@
     </style>
 </head>
 <body>
-    <!-- 画面1: プレイヤー名入力 -->
     <div id="login-screen" class="screen active">
         <h1>マルチプレイ神経衰弱</h1>
         <input type="text" id="player-name-input" placeholder="プレイヤー名を入力">
         <button id="set-name-btn">決定</button>
     </div>
 
-    <!-- 画面2: ルーム作成・参加 -->
     <div id="lobby-screen" class="screen">
         <h2 id="welcome-message"></h2>
-        <button id="create-room-btn">ルームを作成</button>
+        <!-- 【機能追加】AI対戦ボタン -->
+        <button id="ai-play-btn">ひとりでプレイ (AI対戦)</button>
         <hr style="margin: 20px 0; border: 1px solid #eee;">
+        <p>または、友達とプレイ:</p>
+        <button id="create-room-btn">ルームを作成</button>
         <input type="number" id="room-id-input" placeholder="6桁のルームIDを入力">
         <button id="join-room-btn">ルームに参加</button>
     </div>
 
-    <!-- 画面3: ゲーム画面 -->
     <div id="game-screen" class="screen">
         <div id="game-info">
             <div id="player1-info" class="player-info"></div>
@@ -212,16 +219,14 @@
         <div id="game-board"></div>
         <div id="game-status"></div>
         <button id="reset-game-btn" style="display:none; background-color: #e67e22;">新しいゲームを始める</button>
+        <button id="back-to-lobby-btn" style="display:none; background-color: #95a5a6;">ロビーに戻る</button>
     </div>
 
-    <!-- Firebase SDK -->
     <script type="module">
-        // Firebase SDKのモジュールをインポート
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
         import { getDatabase, ref, set, get, onValue, off, update } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
 
-        // 提供されたFirebase設定情報
         const firebaseConfig = {
             apiKey: "AIzaSyA0D7fOnIvQFU3O29q6bb_6gj5tWN23N0s",
             authDomain: "memory-game-10e98.firebaseapp.com",
@@ -233,26 +238,43 @@
             measurementId: "G-8GN7P9PFX7"
         };
 
-        // Firebaseの初期化
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
         const auth = getAuth(app);
 
-        // DOM要素の取得
         const loginScreen = document.getElementById('login-screen');
         const lobbyScreen = document.getElementById('lobby-screen');
         const gameScreen = document.getElementById('game-screen');
         const gameBoard = document.getElementById('game-board');
 
-        // グローバル変数
         let currentPlayer = { uid: null, name: '' };
         let currentRoomId = null;
         let roomRef = null;
         let roomListener = null;
 
-        // --- 認証とUI制御 ---
+        // --- AI対戦モード用変数 ---
+        let isAiGame = false;
+        let localGameData = null;
+        let aiTurnTimeout = null;
 
-        // 匿名認証でFirebaseにサインイン
+        // --- 効果音 ---
+        let flipSynth;
+        // ユーザーの最初のインタラクションでオーディオコンテキストを開始
+        document.body.addEventListener('click', () => {
+            if (!flipSynth) {
+                flipSynth = new Tone.Synth({
+                    oscillator: { type: 'sine' },
+                    envelope: { attack: 0.005, decay: 0.1, sustain: 0.3, release: 0.1 }
+                }).toDestination();
+            }
+        }, { once: true });
+
+        function playFlipSound() {
+            if (flipSynth) {
+                flipSynth.triggerAttackRelease("C5", "16n");
+            }
+        }
+        
         signInAnonymously(auth).catch(error => {
             console.error("Anonymous sign-in failed:", error);
             if (error.code === 'auth/configuration-not-found') {
@@ -264,25 +286,20 @@
             }
             document.querySelectorAll('button').forEach(btn => btn.disabled = true);
         });
-
-        // 認証状態の監視
+        
         onAuthStateChanged(auth, user => {
             if (user) {
-                console.log("Signed in anonymously with UID:", user.uid);
                 currentPlayer.uid = user.uid;
             } else {
-                console.log("User is signed out.");
                 currentPlayer.uid = null;
             }
         });
         
-        // 画面を切り替える関数
         function switchScreen(screenId) {
             document.querySelectorAll('.screen').forEach(screen => screen.classList.remove('active'));
             document.getElementById(screenId).classList.add('active');
         }
 
-        // プレイヤー名設定
         document.getElementById('set-name-btn').addEventListener('click', () => {
             const name = document.getElementById('player-name-input').value.trim();
             if (name && currentPlayer.uid) {
@@ -294,16 +311,39 @@
             }
         });
 
-        // --- ルーム作成と参加 ---
-
-        // ルーム作成
-        document.getElementById('create-room-btn').addEventListener('click', async () => {
-            currentRoomId = Math.floor(100000 + Math.random() * 900000).toString();
-            roomRef = ref(db, 'rooms/' + currentRoomId);
-            
+        // --- AIモード開始 ---
+        document.getElementById('ai-play-btn').addEventListener('click', () => {
+            isAiGame = true;
             const symbols = ['1', '1', '2', '2', '3', '3', '4', '4', '5', '5', '6', '6', '7', '7', '8', '8'];
             shuffleArray(symbols);
 
+            localGameData = {
+                players: {
+                    [currentPlayer.uid]: { name: currentPlayer.name, score: 0 },
+                    'ai': { name: 'AI', score: 0 }
+                },
+                gameState: {
+                    hostUid: currentPlayer.uid,
+                    board: symbols,
+                    flippedIndices: [],
+                    matchedIndices: [],
+                    currentPlayerUid: currentPlayer.uid,
+                    status: 'playing',
+                    winner: null
+                }
+            };
+            document.getElementById('room-id-display').textContent = 'AI 対戦';
+            switchScreen('game-screen');
+            renderGame(localGameData);
+        });
+
+        // --- マルチプレイモード ---
+        document.getElementById('create-room-btn').addEventListener('click', async () => {
+            isAiGame = false;
+            currentRoomId = Math.floor(100000 + Math.random() * 900000).toString();
+            roomRef = ref(db, 'rooms/' + currentRoomId);
+            const symbols = ['1', '1', '2', '2', '3', '3', '4', '4', '5', '5', '6', '6', '7', '7', '8', '8'];
+            shuffleArray(symbols);
             const newRoom = {
                 players: { [currentPlayer.uid]: { name: currentPlayer.name, score: 0 } },
                 gameState: {
@@ -320,35 +360,19 @@
             joinRoom(currentRoomId);
         });
 
-        // ルーム参加
         document.getElementById('join-room-btn').addEventListener('click', async () => {
+            isAiGame = false;
             const roomId = document.getElementById('room-id-input').value;
-            if (!roomId || roomId.length !== 6) {
-                alert('6桁のルームIDを入力してください。');
-                return;
-            }
-            
+            if (!roomId || roomId.length !== 6) { return alert('6桁のルームIDを入力してください。'); }
             const roomToJoinRef = ref(db, 'rooms/' + roomId);
             const snapshot = await get(roomToJoinRef);
-
-            if (!snapshot.exists()) {
-                alert('ルームが見つかりません。');
-                return;
-            }
-
+            if (!snapshot.exists()) { return alert('ルームが見つかりません。'); }
             const roomData = snapshot.val();
-            const numPlayers = Object.keys(roomData.players).length;
-
-            if (numPlayers >= 2) {
-                alert('このルームは満員です。');
-                return;
-            }
-            
+            if (Object.keys(roomData.players).length >= 2) { return alert('このルームは満員です。'); }
             const updates = {};
             updates[`/players/${currentPlayer.uid}`] = { name: currentPlayer.name, score: 0 };
             updates[`/gameState/status`] = 'playing';
             await update(roomToJoinRef, updates);
-
             joinRoom(roomId);
         });
         
@@ -356,12 +380,10 @@
             currentRoomId = roomId;
             roomRef = ref(db, 'rooms/' + currentRoomId);
             switchScreen('game-screen');
-            
             if (roomListener) off(roomRef, 'value', roomListener);
             roomListener = onValue(roomRef, (snapshot) => {
                 if(snapshot.exists()){
-                    const roomData = snapshot.val();
-                    renderGame(roomData);
+                    renderGame(snapshot.val());
                 } else {
                     alert("ルームが削除されました。ロビーに戻ります。");
                     leaveRoom();
@@ -370,9 +392,12 @@
         }
         
         function leaveRoom() {
-            if (roomListener && roomRef) {
+            if (!isAiGame && roomListener && roomRef) {
                 off(roomRef, 'value', roomListener);
             }
+            clearTimeout(aiTurnTimeout);
+            isAiGame = false;
+            localGameData = null;
             currentRoomId = null;
             roomRef = null;
             roomListener = null;
@@ -380,45 +405,38 @@
         }
 
         // --- ゲーム描画 ---
-
-        function renderGame(roomData) {
-            // データが不完全な場合は処理を中断
-            if (!roomData || !roomData.players || !roomData.gameState || !roomData.gameState.board) {
-                console.warn("Incomplete room data received, skipping render:", roomData);
-                return;
-            }
-        
-            const { players, gameState } = roomData;
+        function renderGame(data) {
+            if (!data || !data.players || !data.gameState || !data.gameState.board) { return; }
+            const { players, gameState } = data;
             const flippedIndices = gameState.flippedIndices || [];
             const matchedIndices = gameState.matchedIndices || [];
             
             const hostUid = gameState.hostUid;
             const playerIds = Object.keys(players);
-            
+            const otherPlayerUid = playerIds.find(id => id !== hostUid);
+
             const player1Info = document.getElementById('player1-info');
             const player2Info = document.getElementById('player2-info');
 
-            // 【修正点】表示を毎回リセットしてから、再構築する
             player1Info.textContent = '';
             player1Info.classList.remove('current-turn');
             player2Info.textContent = '待機中...';
             player2Info.classList.remove('current-turn');
             
-            // 全プレイヤーIDをループして、ホストかそれ以外かで表示を振り分ける
             playerIds.forEach(pid => {
                 if (pid === hostUid) {
-                    // ホストを左側（プレイヤー1）に表示
                     player1Info.textContent = `${players[pid].name}: ${players[pid].score || 0}`;
                     player1Info.classList.toggle('current-turn', gameState.currentPlayerUid === pid);
                 } else {
-                    // ホスト以外を右側（プレイヤー2）に表示
                     player2Info.textContent = `${players[pid].name}: ${players[pid].score || 0}`;
                     player2Info.classList.toggle('current-turn', gameState.currentPlayerUid === pid);
                 }
             });
 
-            document.getElementById('room-id-display').innerHTML = `<span class="label">ID:</span> ${currentRoomId}`;
-            
+            if(!isAiGame) {
+                document.getElementById('room-id-display').innerHTML = `<span class="label">ID:</span> ${currentRoomId}`;
+            }
+
             gameBoard.innerHTML = '';
             gameState.board.forEach((symbol, index) => {
                 const card = document.createElement('div');
@@ -431,9 +449,7 @@
                 if (matchedIndices.includes(index)) {
                     card.classList.add('matched');
                 }
-
                 card.innerHTML = `<div class="card-face card-front">${symbol}</div><div class="card-face card-back"></div>`;
-                
                 if (gameState.status === 'playing') {
                     card.addEventListener('click', () => handleCardClick(index));
                 }
@@ -442,49 +458,85 @@
             
             const gameStatusEl = document.getElementById('game-status');
             const resetBtn = document.getElementById('reset-game-btn');
+            const backBtn = document.getElementById('back-to-lobby-btn');
             resetBtn.style.display = 'none';
+            backBtn.style.display = 'block';
 
             if (gameState.status === 'waiting') {
                 gameStatusEl.textContent = '2人目のプレイヤーを待っています...';
             } else if (gameState.status === 'finished') {
                 const winnerId = gameState.winner;
                 gameStatusEl.textContent = winnerId ? `${players[winnerId].name}の勝利！` : '引き分け！';
-                if(Object.keys(players).includes(currentPlayer.uid)) {
-                   resetBtn.style.display = 'block';
-                }
+                resetBtn.style.display = 'block';
             } else {
                 gameStatusEl.textContent = '';
             }
         }
         
         // --- ゲームロジック ---
+        function handleCardClick(index) {
+            playFlipSound();
 
-        async function handleCardClick(index) {
+            const cardElement = gameBoard.querySelector(`[data-index='${index}']`);
+            if(cardElement) cardElement.classList.add('flipping');
+            setTimeout(() => {
+                if(cardElement) cardElement.classList.remove('flipping');
+            }, 600);
+
+
+            if (isAiGame) {
+                handleLocalCardClick(index);
+            } else {
+                handleFirebaseCardClick(index);
+            }
+        }
+
+        async function handleFirebaseCardClick(index) {
             const snapshot = await get(roomRef);
             if (!snapshot.exists()) return;
             const { gameState } = snapshot.val();
-
             if (gameState.currentPlayerUid !== currentPlayer.uid ||
                 (gameState.flippedIndices && gameState.flippedIndices.length >= 2) ||
                 (gameState.flippedIndices && gameState.flippedIndices.includes(index)) ||
                 (gameState.matchedIndices && gameState.matchedIndices.includes(index))) {
                 return;
             }
-            
             const newFlippedIndices = [...(gameState.flippedIndices || []), index];
             const updates = { [`/gameState/flippedIndices`]: newFlippedIndices };
             await update(roomRef, updates);
-            
             if (newFlippedIndices.length === 2) {
                 setTimeout(checkForMatch, 1000);
             }
         }
-        
+
+        function handleLocalCardClick(index) {
+            const { gameState } = localGameData;
+            if (gameState.currentPlayerUid !== currentPlayer.uid ||
+                gameState.flippedIndices.length >= 2 ||
+                gameState.flippedIndices.includes(index) ||
+                gameState.matchedIndices.includes(index)) {
+                return;
+            }
+            gameState.flippedIndices.push(index);
+            renderGame(localGameData);
+
+            if (gameState.flippedIndices.length === 2) {
+                setTimeout(checkForMatch, 1000);
+            }
+        }
+
         async function checkForMatch() {
+            if (isAiGame) {
+                checkForLocalMatch();
+            } else {
+                await checkForFirebaseMatch();
+            }
+        }
+
+        async function checkForFirebaseMatch() {
             const snapshot = await get(roomRef);
             if (!snapshot.exists()) return;
             let { players, gameState } = snapshot.val();
-
             if (!gameState.flippedIndices || gameState.flippedIndices.length < 2) return;
             const [index1, index2] = gameState.flippedIndices;
             
@@ -507,24 +559,82 @@
             const newMatchedCount = isMatch ? updates[`/gameState/matchedIndices`].length : matchedIndices.length;
             if (newMatchedCount === gameState.board.length) {
                 updates[`/gameState/status`] = 'finished';
-                
                 const hostUid = gameState.hostUid;
                 const otherPlayerUid = Object.keys(players).find(id => id !== hostUid);
-
                 let hostScore = players[hostUid].score || 0;
                 let otherScore = otherPlayerUid ? (players[otherPlayerUid].score || 0) : -1;
-
                 if (isMatch && gameState.currentPlayerUid === hostUid) hostScore++;
                 if (isMatch && gameState.currentPlayerUid === otherPlayerUid) otherScore++;
-
                 if (hostScore > otherScore) updates[`/gameState/winner`] = hostUid;
                 else if (otherScore > hostScore) updates[`/gameState/winner`] = otherPlayerUid;
                 else updates[`/gameState/winner`] = null;
             }
-            
             await update(roomRef, updates);
         }
+
+        function checkForLocalMatch() {
+            let { players, gameState } = localGameData;
+            const [index1, index2] = gameState.flippedIndices;
+            const isMatch = gameState.board[index1] === gameState.board[index2];
+
+            if (isMatch) {
+                gameState.matchedIndices.push(index1, index2);
+                players[gameState.currentPlayerUid].score++;
+            } else {
+                const playerIds = Object.keys(players);
+                const otherPlayerUid = playerIds.find(id => id !== gameState.currentPlayerUid);
+                gameState.currentPlayerUid = otherPlayerUid;
+            }
+            gameState.flippedIndices = [];
+            
+            if (gameState.matchedIndices.length === gameState.board.length) {
+                gameState.status = 'finished';
+                const p1Score = players[currentPlayer.uid].score;
+                const aiScore = players['ai'].score;
+                if(p1Score > aiScore) gameState.winner = currentPlayer.uid;
+                else if (aiScore > p1Score) gameState.winner = 'ai';
+                else gameState.winner = null;
+            }
+            
+            renderGame(localGameData);
+
+            if(gameState.status !== 'finished' && gameState.currentPlayerUid === 'ai') {
+                aiTurn();
+            }
+        }
         
+        function aiTurn() {
+            const { gameState } = localGameData;
+            // 盤面をロックするような表示（任意）
+            document.getElementById('game-status').textContent = 'AIのターン...';
+
+            aiTurnTimeout = setTimeout(() => {
+                // AIの思考ロジック（今回はランダム）
+                let availableIndices = [];
+                for(let i = 0; i < gameState.board.length; i++) {
+                    if(!gameState.matchedIndices.includes(i)) {
+                        availableIndices.push(i);
+                    }
+                }
+                
+                // 1枚目を選択
+                const firstChoiceIndex = Math.floor(Math.random() * availableIndices.length);
+                const firstCardIndex = availableIndices.splice(firstChoiceIndex, 1)[0];
+                handleLocalCardClick(firstCardIndex);
+                playFlipSound();
+
+                aiTurnTimeout = setTimeout(() => {
+                    // 2枚目を選択
+                    const secondChoiceIndex = Math.floor(Math.random() * availableIndices.length);
+                    const secondCardIndex = availableIndices.splice(secondChoiceIndex, 1)[0];
+                    handleLocalCardClick(secondCardIndex);
+                    playFlipSound();
+
+                }, 1200);
+
+            }, 1000);
+        }
+
         function shuffleArray(array) {
             for (let i = array.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
@@ -532,24 +642,24 @@
             }
         }
         
+        document.getElementById('back-to-lobby-btn').addEventListener('click', leaveRoom);
+
         document.getElementById('reset-game-btn').addEventListener('click', async () => {
-             const snapshot = await get(roomRef);
-             if (!snapshot.exists()) return;
-             let { players, gameState } = snapshot.val();
-             
-             shuffleArray(gameState.board);
-             for (let uid in players) { players[uid].score = 0; }
-             
-             const updates = {
-                 '/gameState/board': gameState.board,
-                 '/gameState/flippedIndices': [],
-                 '/gameState/matchedIndices': [],
-                 '/gameState/status': 'playing',
-                 '/gameState/winner': null,
-                 '/players': players
-             };
-             
-             await update(roomRef, updates);
+             if (isAiGame) {
+                document.getElementById('ai-play-btn').click();
+             } else {
+                const snapshot = await get(roomRef);
+                if (!snapshot.exists()) return;
+                let { players, gameState } = snapshot.val();
+                shuffleArray(gameState.board);
+                for (let uid in players) { players[uid].score = 0; }
+                const updates = {
+                    '/gameState/board': gameState.board, '/gameState/flippedIndices': [],
+                    '/gameState/matchedIndices': [], '/gameState/status': 'playing',
+                    '/gameState/winner': null, '/players': players
+                };
+                await update(roomRef, updates);
+             }
         });
 
     </script>
