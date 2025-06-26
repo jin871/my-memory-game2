@@ -255,13 +255,14 @@
         // 匿名認証でFirebaseにサインイン
         signInAnonymously(auth).catch(error => {
             console.error("Anonymous sign-in failed:", error);
-            // エラーの原因をユーザーに分かりやすく通知
+            // 【修正点】エラーの種類に応じて、より具体的なメッセージを表示
             if (error.code === 'auth/configuration-not-found') {
                 alert('認証エラー: Firebaseプロジェクトで匿名認証が有効になっていない可能性があります。Firebaseコンソールの「Authentication」→「Sign-in method」で匿名認証を有効にしてください。');
+            } else if (error.code === 'auth/admin-restricted-operation') {
+                alert('認証エラー: この操作はプロジェクトの設定により制限されています。Firebase Identity Platformの高度な機能（マルチテナンシーなど）が有効になっている場合、このエラーが発生することがあります。プロジェクトの設定をご確認ください。');
             } else {
                 alert('認証中に不明なエラーが発生しました: ' + error.message);
             }
-            // エラー発生時はボタンを無効化
             document.querySelectorAll('button').forEach(btn => btn.disabled = true);
         });
 
@@ -307,11 +308,12 @@
             const newRoom = {
                 players: { [currentPlayer.uid]: { name: currentPlayer.name, score: 0 } },
                 gameState: {
+                    hostUid: currentPlayer.uid, 
                     board: symbols,
                     flippedIndices: [],
                     matchedIndices: [],
                     currentPlayerUid: currentPlayer.uid,
-                    status: 'waiting', // waiting, playing, finished
+                    status: 'waiting',
                     winner: null
                 }
             };
@@ -343,7 +345,6 @@
                 return;
             }
             
-            // プレイヤーをルームに追加し、ゲーム状態を'playing'に更新（一括更新）
             const updates = {};
             updates[`/players/${currentPlayer.uid}`] = { name: currentPlayer.name, score: 0 };
             updates[`/gameState/status`] = 'playing';
@@ -382,35 +383,32 @@
         // --- ゲーム描画 ---
 
         function renderGame(roomData) {
-            // データが不完全な場合に処理を中断するガード節
             if (!roomData || !roomData.players || !roomData.gameState || !roomData.gameState.board) {
                 console.warn("Incomplete room data received, skipping render:", roomData);
                 return;
             }
         
             const { players, gameState } = roomData;
-            
-            // 配列が存在しない場合に備えて、デフォルトの空配列を割り当てる
             const flippedIndices = gameState.flippedIndices || [];
             const matchedIndices = gameState.matchedIndices || [];
             
-            // 【修正点】プレイヤーIDをソートして順序を固定する
+            const hostUid = gameState.hostUid;
             const playerIds = Object.keys(players);
-            playerIds.sort();
+            const otherPlayerUid = playerIds.find(id => id !== hostUid);
 
-            const p1Id = playerIds[0];
-            const p2Id = playerIds[1];
-            
             const player1Info = document.getElementById('player1-info');
-            if (p1Id) {
-                player1Info.textContent = `${players[p1Id].name}: ${players[p1Id].score}`;
-                player1Info.classList.toggle('current-turn', gameState.currentPlayerUid === p1Id);
-            }
-            
             const player2Info = document.getElementById('player2-info');
-            if (p2Id) {
-                player2Info.textContent = `${players[p2Id].name}: ${players[p2Id].score}`;
-                player2Info.classList.toggle('current-turn', gameState.currentPlayerUid === p2Id);
+
+            // 常にホストをプレイヤー1（左側）に表示
+            if (hostUid && players[hostUid]) {
+                player1Info.textContent = `${players[hostUid].name}: ${players[hostUid].score || 0}`;
+                player1Info.classList.toggle('current-turn', gameState.currentPlayerUid === hostUid);
+            }
+
+            // ホスト以外のプレイヤーをプレイヤー2（右側）に表示
+            if (otherPlayerUid && players[otherPlayerUid]) {
+                player2Info.textContent = `${players[otherPlayerUid].name}: ${players[otherPlayerUid].score || 0}`;
+                player2Info.classList.toggle('current-turn', gameState.currentPlayerUid === otherPlayerUid);
             } else {
                 player2Info.textContent = "待機中...";
                 player2Info.classList.remove('current-turn');
@@ -456,12 +454,12 @@
             }
         }
         
-        // --- ゲームロジック (レースコンディション対策済み) ---
+        // --- ゲームロジック ---
 
         async function handleCardClick(index) {
             const snapshot = await get(roomRef);
             if (!snapshot.exists()) return;
-            const { players, gameState } = snapshot.val();
+            const { gameState } = snapshot.val();
 
             if (gameState.currentPlayerUid !== currentPlayer.uid ||
                 (gameState.flippedIndices && gameState.flippedIndices.length >= 2) ||
@@ -497,9 +495,8 @@
             } else {
                 const playerIds = Object.keys(players);
                 if (playerIds.length > 1) {
-                    const currentPlayerIndex = playerIds.indexOf(gameState.currentPlayerUid);
-                    const nextPlayerIndex = (currentPlayerIndex + 1) % playerIds.length;
-                    updates[`/gameState/currentPlayerUid`] = playerIds[nextPlayerIndex];
+                    const otherPlayerUid = playerIds.find(id => id !== gameState.currentPlayerUid);
+                    updates[`/gameState/currentPlayerUid`] = otherPlayerUid;
                 }
             }
             updates[`/gameState/flippedIndices`] = [];
@@ -507,13 +504,18 @@
             const newMatchedCount = isMatch ? updates[`/gameState/matchedIndices`].length : matchedIndices.length;
             if (newMatchedCount === gameState.board.length) {
                 updates[`/gameState/status`] = 'finished';
-                const p1Id = Object.keys(players)[0];
-                const p2Id = Object.keys(players)[1];
-                let p1Score = isMatch && p1Id === gameState.currentPlayerUid ? updates[`/players/${p1Id}/score`] : players[p1Id].score;
-                let p2Score = p2Id ? (isMatch && p2Id === gameState.currentPlayerUid ? updates[`/players/${p2Id}/score`] : players[p2Id].score) : -1;
+                
+                const hostUid = gameState.hostUid;
+                const otherPlayerUid = Object.keys(players).find(id => id !== hostUid);
 
-                if (p1Score > p2Score) updates[`/gameState/winner`] = p1Id;
-                else if (p2Score > p1Score) updates[`/gameState/winner`] = p2Id;
+                let hostScore = players[hostUid].score || 0;
+                let otherScore = otherPlayerUid ? (players[otherPlayerUid].score || 0) : -1;
+
+                if (isMatch && gameState.currentPlayerUid === hostUid) hostScore++;
+                if (isMatch && gameState.currentPlayerUid === otherPlayerUid) otherScore++;
+
+                if (hostScore > otherScore) updates[`/gameState/winner`] = hostUid;
+                else if (otherScore > hostScore) updates[`/gameState/winner`] = otherPlayerUid;
                 else updates[`/gameState/winner`] = null;
             }
             
