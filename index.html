@@ -382,7 +382,7 @@
         // --- ゲーム描画 ---
 
         function renderGame(roomData) {
-            // 【修正】データが不完全な場合に処理を中断するガード節を追加
+            // データが不完全な場合に処理を中断するガード節
             if (!roomData || !roomData.players || !roomData.gameState || !roomData.gameState.board) {
                 console.warn("Incomplete room data received, skipping render:", roomData);
                 return;
@@ -390,17 +390,22 @@
         
             const { players, gameState } = roomData;
             
-            // 【修正】配列が存在しない場合に備えて、デフォルトの空配列を割り当てる
+            // 配列が存在しない場合に備えて、デフォルトの空配列を割り当てる
             const flippedIndices = gameState.flippedIndices || [];
             const matchedIndices = gameState.matchedIndices || [];
             
+            // 【修正点】プレイヤーIDをソートして順序を固定する
             const playerIds = Object.keys(players);
+            playerIds.sort();
+
             const p1Id = playerIds[0];
             const p2Id = playerIds[1];
             
             const player1Info = document.getElementById('player1-info');
-            player1Info.textContent = `${players[p1Id].name}: ${players[p1Id].score}`;
-            player1Info.classList.toggle('current-turn', gameState.currentPlayerUid === p1Id);
+            if (p1Id) {
+                player1Info.textContent = `${players[p1Id].name}: ${players[p1Id].score}`;
+                player1Info.classList.toggle('current-turn', gameState.currentPlayerUid === p1Id);
+            }
             
             const player2Info = document.getElementById('player2-info');
             if (p2Id) {
@@ -419,7 +424,6 @@
                 card.classList.add('card');
                 card.dataset.index = index;
 
-                // 【修正】安全なローカル変数を使用
                 if (flippedIndices.includes(index) || matchedIndices.includes(index)) {
                     card.classList.add('flipped');
                 }
