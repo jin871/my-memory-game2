@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>マルチプレイ神経衰弱</title>
+    <title>神経衰弱 (AI対戦)</title>
     
     <!-- カードめくり音用のTone.jsを読み込み -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.js"></script>
@@ -44,7 +44,7 @@
         }
 
         /* 入力フィールドとボタン */
-        input[type="text"], input[type="number"] {
+        input[type="text"] {
             width: calc(100% - 20px);
             padding: 12px 10px;
             margin-bottom: 15px;
@@ -59,25 +59,13 @@
             cursor: pointer;
             border: none;
             border-radius: 8px;
-            background-color: #3498db;
+            background-color: #2ecc71;
             color: white;
             transition: background-color 0.3s;
             margin: 5px;
         }
 
         button:hover {
-            background-color: #2980b9;
-        }
-
-        button:disabled {
-            background-color: #bdc3c7;
-            cursor: not-allowed;
-        }
-        
-        #create-room-btn, #ai-play-btn {
-            background-color: #2ecc71;
-        }
-        #create-room-btn:hover, #ai-play-btn:hover {
             background-color: #27ae60;
         }
 
@@ -104,19 +92,6 @@
             box-shadow: 0 4px 15px rgba(241, 196, 15, 0.4);
         }
 
-        #room-id-display {
-            background: #ecf0f1;
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-weight: bold;
-            font-size: 16px;
-            color: #7f8c8d;
-        }
-        
-        #room-id-display .label {
-            font-weight: normal;
-        }
-
         #game-board {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
@@ -132,16 +107,13 @@
             position: relative;
             cursor: pointer;
             transform-style: preserve-3d;
-            /* 【アニメーション修正】transitionにtransformを追加 */
-            transition: transform 0.6s;
+            /* 【アニメーション修正】transitionのタイミング関数を調整 */
+            transition: transform 0.6s ease-in-out;
         }
 
-        /* 【アニメーション追加】クリック時に少し浮き上がる効果 */
-        .card.flipping {
-            transform: scale(1.05) rotateY(180deg);
-        }
+        /* 【アニメーション強化】めくられたカードは少し拡大してポップアップ */
         .card.flipped {
-            transform: rotateY(180deg);
+            transform: rotateY(180deg) scale(1.05);
         }
 
         .card-face {
@@ -177,10 +149,11 @@
         .card-back::after {
             content: '♦';
         }
-
+        
+        /* 【アニメーション強化】揃ったカードは元のサイズに戻り、半透明になる */
         .card.matched {
-            transform: rotateY(180deg);
-            opacity: 0.3;
+            transform: rotateY(180deg) scale(1);
+            opacity: 0.4;
             cursor: default;
         }
         
@@ -190,84 +163,66 @@
             font-weight: bold;
             color: #e74c3c;
         }
+
+        .game-controls button {
+            background-color: #95a5a6;
+        }
+        .game-controls button:hover {
+            background-color: #7f8c8d;
+        }
+        #reset-game-btn {
+            background-color: #2ecc71 !important;
+        }
+        #reset-game-btn:hover {
+             background-color: #27ae60 !important;
+        }
     </style>
 </head>
 <body>
     <div id="login-screen" class="screen active">
-        <h1>マルチプレイ神経衰弱</h1>
-        <input type="text" id="player-name-input" placeholder="プレイヤー名を入力">
-        <button id="set-name-btn">決定</button>
-    </div>
-
-    <div id="lobby-screen" class="screen">
-        <h2 id="welcome-message"></h2>
-        <!-- 【機能追加】AI対戦ボタン -->
-        <button id="ai-play-btn">ひとりでプレイ (AI対戦)</button>
-        <hr style="margin: 20px 0; border: 1px solid #eee;">
-        <p>または、友達とプレイ:</p>
-        <button id="create-room-btn">ルームを作成</button>
-        <input type="number" id="room-id-input" placeholder="6桁のルームIDを入力">
-        <button id="join-room-btn">ルームに参加</button>
+        <h1>神経衰弱 AI対戦</h1>
+        <input type="text" id="player-name-input" placeholder="プレイヤー名を入力" value="あなた">
+        <button id="start-game-btn">ゲーム開始</button>
     </div>
 
     <div id="game-screen" class="screen">
         <div id="game-info">
             <div id="player1-info" class="player-info"></div>
-            <div id="room-id-display"></div>
             <div id="player2-info" class="player-info"></div>
         </div>
         <div id="game-board"></div>
         <div id="game-status"></div>
-        <button id="reset-game-btn" style="display:none; background-color: #e67e22;">新しいゲームを始める</button>
-        <button id="back-to-lobby-btn" style="display:none; background-color: #95a5a6;">ロビーに戻る</button>
+        <div class="game-controls">
+            <button id="reset-game-btn" style="display:none;">もう一度プレイ</button>
+            <button id="back-to-menu-btn">メニューに戻る</button>
+        </div>
     </div>
 
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
-        import { getDatabase, ref, set, get, onValue, off, update } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-database.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
-
-        const firebaseConfig = {
-            apiKey: "AIzaSyA0D7fOnIvQFU3O29q6bb_6gj5tWN23N0s",
-            authDomain: "memory-game-10e98.firebaseapp.com",
-            databaseURL: "https://memory-game-10e98-default-rtdb.firebaseio.com",
-            projectId: "memory-game-10e98",
-            storageBucket: "memory-game-10e98.firebasestorage.app",
-            messagingSenderId: "435852264433",
-            appId: "1:435852264433:web:0ef957830b634b9eb13a50",
-            measurementId: "G-8GN7P9PFX7"
-        };
-
-        const app = initializeApp(firebaseConfig);
-        const db = getDatabase(app);
-        const auth = getAuth(app);
-
+    <script>
         const loginScreen = document.getElementById('login-screen');
-        const lobbyScreen = document.getElementById('lobby-screen');
         const gameScreen = document.getElementById('game-screen');
         const gameBoard = document.getElementById('game-board');
 
-        let currentPlayer = { uid: null, name: '' };
-        let currentRoomId = null;
-        let roomRef = null;
-        let roomListener = null;
-
-        // --- AI対戦モード用変数 ---
-        let isAiGame = false;
         let localGameData = null;
         let aiTurnTimeout = null;
+        let humanPlayerName = 'あなた';
 
         // --- 効果音 ---
         let flipSynth;
-        // ユーザーの最初のインタラクションでオーディオコンテキストを開始
-        document.body.addEventListener('click', () => {
+        
+        async function setupAudio() {
+            if (typeof Tone === 'undefined') { return; }
+            if (Tone.context.state !== 'running') {
+                await Tone.start();
+            }
             if (!flipSynth) {
                 flipSynth = new Tone.Synth({
                     oscillator: { type: 'sine' },
                     envelope: { attack: 0.005, decay: 0.1, sustain: 0.3, release: 0.1 }
                 }).toDestination();
             }
-        }, { once: true });
+        }
+        document.body.addEventListener('click', setupAudio, { once: true });
 
         function playFlipSound() {
             if (flipSynth) {
@@ -275,361 +230,179 @@
             }
         }
         
-        signInAnonymously(auth).catch(error => {
-            console.error("Anonymous sign-in failed:", error);
-            if (error.code === 'auth/configuration-not-found') {
-                alert('認証エラー: Firebaseプロジェクトで匿名認証が有効になっていない可能性があります。Firebaseコンソールの「Authentication」→「Sign-in method」で匿名認証を有効にしてください。');
-            } else if (error.code === 'auth/admin-restricted-operation') {
-                alert('認証エラー: この操作はプロジェクトの設定により制限されています。Firebase Identity Platformの高度な機能（マルチテナンシーなど）が有効になっている場合、このエラーが発生することがあります。プロジェクトの設定をご確認ください。');
-            } else {
-                alert('認証中に不明なエラーが発生しました: ' + error.message);
-            }
-            document.querySelectorAll('button').forEach(btn => btn.disabled = true);
-        });
-        
-        onAuthStateChanged(auth, user => {
-            if (user) {
-                currentPlayer.uid = user.uid;
-            } else {
-                currentPlayer.uid = null;
-            }
-        });
-        
         function switchScreen(screenId) {
             document.querySelectorAll('.screen').forEach(screen => screen.classList.remove('active'));
             document.getElementById(screenId).classList.add('active');
         }
 
-        document.getElementById('set-name-btn').addEventListener('click', () => {
-            const name = document.getElementById('player-name-input').value.trim();
-            if (name && currentPlayer.uid) {
-                currentPlayer.name = name;
-                document.getElementById('welcome-message').textContent = `ようこそ、${name} さん！`;
-                switchScreen('lobby-screen');
-            } else {
-                alert('プレイヤー名を入力してください。');
-            }
-        });
+        // --- ゲーム開始処理 ---
+        function startGame() {
+            const nameInput = document.getElementById('player-name-input').value.trim();
+            humanPlayerName = nameInput || 'あなた';
 
-        // --- AIモード開始 ---
-        document.getElementById('ai-play-btn').addEventListener('click', () => {
-            isAiGame = true;
             const symbols = ['1', '1', '2', '2', '3', '3', '4', '4', '5', '5', '6', '6', '7', '7', '8', '8'];
             shuffleArray(symbols);
 
             localGameData = {
                 players: {
-                    [currentPlayer.uid]: { name: currentPlayer.name, score: 0 },
+                    'human': { name: humanPlayerName, score: 0 },
                     'ai': { name: 'AI', score: 0 }
                 },
                 gameState: {
-                    hostUid: currentPlayer.uid,
                     board: symbols,
                     flippedIndices: [],
                     matchedIndices: [],
-                    currentPlayerUid: currentPlayer.uid,
+                    currentPlayerId: 'human',
                     status: 'playing',
                     winner: null
                 }
             };
-            document.getElementById('room-id-display').textContent = 'AI 対戦';
             switchScreen('game-screen');
-            renderGame(localGameData);
-        });
-
-        // --- マルチプレイモード ---
-        document.getElementById('create-room-btn').addEventListener('click', async () => {
-            isAiGame = false;
-            currentRoomId = Math.floor(100000 + Math.random() * 900000).toString();
-            roomRef = ref(db, 'rooms/' + currentRoomId);
-            const symbols = ['1', '1', '2', '2', '3', '3', '4', '4', '5', '5', '6', '6', '7', '7', '8', '8'];
-            shuffleArray(symbols);
-            const newRoom = {
-                players: { [currentPlayer.uid]: { name: currentPlayer.name, score: 0 } },
-                gameState: {
-                    hostUid: currentPlayer.uid, 
-                    board: symbols,
-                    flippedIndices: [],
-                    matchedIndices: [],
-                    currentPlayerUid: currentPlayer.uid,
-                    status: 'waiting',
-                    winner: null
-                }
-            };
-            await set(roomRef, newRoom);
-            joinRoom(currentRoomId);
-        });
-
-        document.getElementById('join-room-btn').addEventListener('click', async () => {
-            isAiGame = false;
-            const roomId = document.getElementById('room-id-input').value;
-            if (!roomId || roomId.length !== 6) { return alert('6桁のルームIDを入力してください。'); }
-            const roomToJoinRef = ref(db, 'rooms/' + roomId);
-            const snapshot = await get(roomToJoinRef);
-            if (!snapshot.exists()) { return alert('ルームが見つかりません。'); }
-            const roomData = snapshot.val();
-            if (Object.keys(roomData.players).length >= 2) { return alert('このルームは満員です。'); }
-            const updates = {};
-            updates[`/players/${currentPlayer.uid}`] = { name: currentPlayer.name, score: 0 };
-            updates[`/gameState/status`] = 'playing';
-            await update(roomToJoinRef, updates);
-            joinRoom(roomId);
-        });
-        
-        function joinRoom(roomId) {
-            currentRoomId = roomId;
-            roomRef = ref(db, 'rooms/' + currentRoomId);
-            switchScreen('game-screen');
-            if (roomListener) off(roomRef, 'value', roomListener);
-            roomListener = onValue(roomRef, (snapshot) => {
-                if(snapshot.exists()){
-                    renderGame(snapshot.val());
-                } else {
-                    alert("ルームが削除されました。ロビーに戻ります。");
-                    leaveRoom();
-                }
-            });
-        }
-        
-        function leaveRoom() {
-            if (!isAiGame && roomListener && roomRef) {
-                off(roomRef, 'value', roomListener);
-            }
-            clearTimeout(aiTurnTimeout);
-            isAiGame = false;
-            localGameData = null;
-            currentRoomId = null;
-            roomRef = null;
-            roomListener = null;
-            switchScreen('lobby-screen');
+            // 【アニメーション修正】ボードの作成とビューの更新を分離
+            createBoardView();
+            updateGameView();
         }
 
-        // --- ゲーム描画 ---
-        function renderGame(data) {
-            if (!data || !data.players || !data.gameState || !data.gameState.board) { return; }
-            const { players, gameState } = data;
-            const flippedIndices = gameState.flippedIndices || [];
-            const matchedIndices = gameState.matchedIndices || [];
-            
-            const hostUid = gameState.hostUid;
-            const playerIds = Object.keys(players);
-            const otherPlayerUid = playerIds.find(id => id !== hostUid);
+        document.getElementById('start-game-btn').addEventListener('click', startGame);
 
-            const player1Info = document.getElementById('player1-info');
-            const player2Info = document.getElementById('player2-info');
-
-            player1Info.textContent = '';
-            player1Info.classList.remove('current-turn');
-            player2Info.textContent = '待機中...';
-            player2Info.classList.remove('current-turn');
-            
-            playerIds.forEach(pid => {
-                if (pid === hostUid) {
-                    player1Info.textContent = `${players[pid].name}: ${players[pid].score || 0}`;
-                    player1Info.classList.toggle('current-turn', gameState.currentPlayerUid === pid);
-                } else {
-                    player2Info.textContent = `${players[pid].name}: ${players[pid].score || 0}`;
-                    player2Info.classList.toggle('current-turn', gameState.currentPlayerUid === pid);
-                }
-            });
-
-            if(!isAiGame) {
-                document.getElementById('room-id-display').innerHTML = `<span class="label">ID:</span> ${currentRoomId}`;
-            }
-
+        // 【アニメーション修正】ボードのHTMLを一度だけ作成する関数
+        function createBoardView() {
             gameBoard.innerHTML = '';
-            gameState.board.forEach((symbol, index) => {
+            localGameData.gameState.board.forEach((symbol, index) => {
                 const card = document.createElement('div');
                 card.classList.add('card');
                 card.dataset.index = index;
 
-                if (flippedIndices.includes(index) || matchedIndices.includes(index)) {
-                    card.classList.add('flipped');
-                }
-                if (matchedIndices.includes(index)) {
-                    card.classList.add('matched');
-                }
-                card.innerHTML = `<div class="card-face card-front">${symbol}</div><div class="card-face card-back"></div>`;
-                if (gameState.status === 'playing') {
-                    card.addEventListener('click', () => handleCardClick(index));
-                }
+                card.innerHTML = `
+                    <div class="card-face card-front">${symbol}</div>
+                    <div class="card-face card-back"></div>
+                `;
+                card.addEventListener('click', () => handleCardClick(index));
                 gameBoard.appendChild(card);
             });
+        }
+
+        // 【アニメーション修正】ゲームの状態に応じてビュー（クラスやテキスト）のみを更新する関数
+        function updateGameView() {
+            if (!localGameData) return;
+
+            const { players, gameState } = localGameData;
             
+            // プレイヤー情報とスコアを更新
+            const player1Info = document.getElementById('player1-info');
+            const player2Info = document.getElementById('player2-info');
+            player1Info.textContent = `${players['human'].name}: ${players['human'].score}`;
+            player1Info.classList.toggle('current-turn', gameState.currentPlayerId === 'human');
+            player2Info.textContent = `${players['ai'].name}: ${players['ai'].score}`;
+            player2Info.classList.toggle('current-turn', gameState.currentPlayerId === 'ai');
+
+            // カードのクラスを更新
+            gameState.board.forEach((_, index) => {
+                const cardElement = gameBoard.querySelector(`[data-index='${index}']`);
+                if (cardElement) {
+                    const isFlipped = gameState.flippedIndices.includes(index) || gameState.matchedIndices.includes(index);
+                    const isMatched = gameState.matchedIndices.includes(index);
+                    cardElement.classList.toggle('flipped', isFlipped);
+                    cardElement.classList.toggle('matched', isMatched);
+                }
+            });
+            
+            // ゲームステータステキストを更新
             const gameStatusEl = document.getElementById('game-status');
             const resetBtn = document.getElementById('reset-game-btn');
-            const backBtn = document.getElementById('back-to-lobby-btn');
             resetBtn.style.display = 'none';
-            backBtn.style.display = 'block';
 
-            if (gameState.status === 'waiting') {
-                gameStatusEl.textContent = '2人目のプレイヤーを待っています...';
-            } else if (gameState.status === 'finished') {
+            if (gameState.status === 'finished') {
                 const winnerId = gameState.winner;
                 gameStatusEl.textContent = winnerId ? `${players[winnerId].name}の勝利！` : '引き分け！';
-                resetBtn.style.display = 'block';
+                resetBtn.style.display = 'inline-block';
+            } else if (gameState.currentPlayerId === 'ai') {
+                gameStatusEl.textContent = 'AIのターン...';
             } else {
-                gameStatusEl.textContent = '';
+                gameStatusEl.textContent = 'あなたのターン';
             }
         }
         
         // --- ゲームロジック ---
         function handleCardClick(index) {
-            playFlipSound();
-
-            const cardElement = gameBoard.querySelector(`[data-index='${index}']`);
-            if(cardElement) cardElement.classList.add('flipping');
-            setTimeout(() => {
-                if(cardElement) cardElement.classList.remove('flipping');
-            }, 600);
-
-
-            if (isAiGame) {
-                handleLocalCardClick(index);
-            } else {
-                handleFirebaseCardClick(index);
-            }
-        }
-
-        async function handleFirebaseCardClick(index) {
-            const snapshot = await get(roomRef);
-            if (!snapshot.exists()) return;
-            const { gameState } = snapshot.val();
-            if (gameState.currentPlayerUid !== currentPlayer.uid ||
-                (gameState.flippedIndices && gameState.flippedIndices.length >= 2) ||
-                (gameState.flippedIndices && gameState.flippedIndices.includes(index)) ||
-                (gameState.matchedIndices && gameState.matchedIndices.includes(index))) {
-                return;
-            }
-            const newFlippedIndices = [...(gameState.flippedIndices || []), index];
-            const updates = { [`/gameState/flippedIndices`]: newFlippedIndices };
-            await update(roomRef, updates);
-            if (newFlippedIndices.length === 2) {
-                setTimeout(checkForMatch, 1000);
-            }
-        }
-
-        function handleLocalCardClick(index) {
             const { gameState } = localGameData;
-            if (gameState.currentPlayerUid !== currentPlayer.uid ||
+            
+            if (gameState.currentPlayerId !== 'human' ||
                 gameState.flippedIndices.length >= 2 ||
                 gameState.flippedIndices.includes(index) ||
                 gameState.matchedIndices.includes(index)) {
                 return;
             }
+
+            playFlipSound();
+            
             gameState.flippedIndices.push(index);
-            renderGame(localGameData);
+            // 【アニメーション修正】ビューを更新してアニメーションをトリガー
+            updateGameView();
 
             if (gameState.flippedIndices.length === 2) {
                 setTimeout(checkForMatch, 1000);
             }
         }
 
-        async function checkForMatch() {
-            if (isAiGame) {
-                checkForLocalMatch();
-            } else {
-                await checkForFirebaseMatch();
-            }
-        }
-
-        async function checkForFirebaseMatch() {
-            const snapshot = await get(roomRef);
-            if (!snapshot.exists()) return;
-            let { players, gameState } = snapshot.val();
-            if (!gameState.flippedIndices || gameState.flippedIndices.length < 2) return;
-            const [index1, index2] = gameState.flippedIndices;
-            
-            const updates = {};
-            const isMatch = gameState.board[index1] === gameState.board[index2];
-            
-            const matchedIndices = gameState.matchedIndices || [];
-            if (isMatch) {
-                updates[`/gameState/matchedIndices`] = [...matchedIndices, index1, index2];
-                updates[`/players/${gameState.currentPlayerUid}/score`] = (players[gameState.currentPlayerUid].score || 0) + 1;
-            } else {
-                const playerIds = Object.keys(players);
-                if (playerIds.length > 1) {
-                    const otherPlayerUid = playerIds.find(id => id !== gameState.currentPlayerUid);
-                    updates[`/gameState/currentPlayerUid`] = otherPlayerUid;
-                }
-            }
-            updates[`/gameState/flippedIndices`] = [];
-
-            const newMatchedCount = isMatch ? updates[`/gameState/matchedIndices`].length : matchedIndices.length;
-            if (newMatchedCount === gameState.board.length) {
-                updates[`/gameState/status`] = 'finished';
-                const hostUid = gameState.hostUid;
-                const otherPlayerUid = Object.keys(players).find(id => id !== hostUid);
-                let hostScore = players[hostUid].score || 0;
-                let otherScore = otherPlayerUid ? (players[otherPlayerUid].score || 0) : -1;
-                if (isMatch && gameState.currentPlayerUid === hostUid) hostScore++;
-                if (isMatch && gameState.currentPlayerUid === otherPlayerUid) otherScore++;
-                if (hostScore > otherScore) updates[`/gameState/winner`] = hostUid;
-                else if (otherScore > hostScore) updates[`/gameState/winner`] = otherPlayerUid;
-                else updates[`/gameState/winner`] = null;
-            }
-            await update(roomRef, updates);
-        }
-
-        function checkForLocalMatch() {
+        function checkForMatch() {
             let { players, gameState } = localGameData;
             const [index1, index2] = gameState.flippedIndices;
             const isMatch = gameState.board[index1] === gameState.board[index2];
 
             if (isMatch) {
                 gameState.matchedIndices.push(index1, index2);
-                players[gameState.currentPlayerUid].score++;
+                players[gameState.currentPlayerId].score++;
             } else {
-                const playerIds = Object.keys(players);
-                const otherPlayerUid = playerIds.find(id => id !== gameState.currentPlayerUid);
-                gameState.currentPlayerUid = otherPlayerUid;
+                gameState.currentPlayerId = gameState.currentPlayerId === 'ai' ? 'human' : 'ai';
             }
             gameState.flippedIndices = [];
             
             if (gameState.matchedIndices.length === gameState.board.length) {
                 gameState.status = 'finished';
-                const p1Score = players[currentPlayer.uid].score;
+                const p1Score = players['human'].score;
                 const aiScore = players['ai'].score;
-                if(p1Score > aiScore) gameState.winner = currentPlayer.uid;
+                if(p1Score > aiScore) gameState.winner = 'human';
                 else if (aiScore > p1Score) gameState.winner = 'ai';
                 else gameState.winner = null;
             }
             
-            renderGame(localGameData);
+            // 【アニメーション修正】ビューを更新
+            updateGameView();
 
-            if(gameState.status !== 'finished' && gameState.currentPlayerUid === 'ai') {
+            if(gameState.status !== 'finished' && gameState.currentPlayerId === 'ai') {
                 aiTurn();
             }
         }
         
         function aiTurn() {
+            clearTimeout(aiTurnTimeout);
             const { gameState } = localGameData;
-            // 盤面をロックするような表示（任意）
-            document.getElementById('game-status').textContent = 'AIのターン...';
 
             aiTurnTimeout = setTimeout(() => {
-                // AIの思考ロジック（今回はランダム）
                 let availableIndices = [];
                 for(let i = 0; i < gameState.board.length; i++) {
-                    if(!gameState.matchedIndices.includes(i)) {
+                    if(!gameState.matchedIndices.includes(i) && !gameState.flippedIndices.includes(i)) {
                         availableIndices.push(i);
                     }
                 }
                 
-                // 1枚目を選択
                 const firstChoiceIndex = Math.floor(Math.random() * availableIndices.length);
                 const firstCardIndex = availableIndices.splice(firstChoiceIndex, 1)[0];
-                handleLocalCardClick(firstCardIndex);
+                
                 playFlipSound();
+                gameState.flippedIndices.push(firstCardIndex);
+                updateGameView();
 
                 aiTurnTimeout = setTimeout(() => {
-                    // 2枚目を選択
                     const secondChoiceIndex = Math.floor(Math.random() * availableIndices.length);
                     const secondCardIndex = availableIndices.splice(secondChoiceIndex, 1)[0];
-                    handleLocalCardClick(secondCardIndex);
+                    
                     playFlipSound();
+                    gameState.flippedIndices.push(secondCardIndex);
+                    updateGameView();
 
+                    setTimeout(checkForMatch, 1000);
                 }, 1200);
 
             }, 1000);
@@ -642,25 +415,12 @@
             }
         }
         
-        document.getElementById('back-to-lobby-btn').addEventListener('click', leaveRoom);
-
-        document.getElementById('reset-game-btn').addEventListener('click', async () => {
-             if (isAiGame) {
-                document.getElementById('ai-play-btn').click();
-             } else {
-                const snapshot = await get(roomRef);
-                if (!snapshot.exists()) return;
-                let { players, gameState } = snapshot.val();
-                shuffleArray(gameState.board);
-                for (let uid in players) { players[uid].score = 0; }
-                const updates = {
-                    '/gameState/board': gameState.board, '/gameState/flippedIndices': [],
-                    '/gameState/matchedIndices': [], '/gameState/status': 'playing',
-                    '/gameState/winner': null, '/players': players
-                };
-                await update(roomRef, updates);
-             }
+        document.getElementById('back-to-menu-btn').addEventListener('click', () => {
+            localGameData = null;
+            clearTimeout(aiTurnTimeout);
+            switchScreen('login-screen');
         });
+        document.getElementById('reset-game-btn').addEventListener('click', startGame);
 
     </script>
 </body>
